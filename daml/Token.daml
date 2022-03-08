@@ -1,0 +1,94 @@
+module Token where
+
+import Payment
+
+{-
+content creators can mint NFTs
+Owners can sell their NFTs
+... but they have to pay $royalties
+Participants must be explicitly permitted
+
+-}
+
+-- behavior
+
+-- data model
+
+-- rights/obligations
+template Token
+-- data / variables
+    with 
+        issuer : Party
+        owner : Party
+        description : Text
+        userAdmin: Party -- make sure that issuer and owner are legit\
+        issued : Time
+        lastPrice: Decimal
+        currency: Text
+        royaltiesRate: Decimal
+-- rights/obligations
+    where
+        signatory issuer, userAdmin
+
+
+-- behavior and rights
+        controller owner can 
+            Offer: ContractId TokenOffer
+                with
+                    newOwner: Party
+                    price: Decimal
+                do
+                    create TokenOffer with ..
+
+template TokenOffer
+    with 
+        issuer : Party
+        owner : Party
+        description : Text
+        userAdmin: Party -- make sure that issuer and owner are legit
+        issued : Time
+        newOwner: Party
+        price: Decimal
+        lastPrice: Decimal
+        currency: Text
+        royaltiesRate: Decimal
+
+    where 
+        signatory issuer, userAdmin, owner
+        key (issuer, owner, description) : (Party, Party, Text)
+        maintainer key._2
+        controller newOwner, userAdmin can
+            AcceptToken: (ContractId Token, ContractId Payable, Optional(ContractId Payable) )
+
+                do 
+                    fromNewOwnerToOwner <- create Payable
+                        with 
+                            from = newOwner
+                            to = owner
+                            amount = price
+                            currency
+                            reference = "Notional for  `" <> description <> "`."
+                    condRoyaltyPayement <- if owner == issuer
+                        then return None
+                        else Some <$> create Payable
+                            with
+                                from = newOwner
+                                to = issuer
+                                amount = price * royaltiesRate
+                                currency
+                                reference = "Royalty for  `" <> description <> "`."
+{-                     royaltyPayment <- create Payable
+                        with 
+                            from = newOwner
+                            to = issuer
+                            amount = price * royaltiesRate
+                            currency
+                            reference = "Royalty for  `" <> description <> "`."
+ -}
+                    newToken <- create Token
+                        with
+                            owner = newOwner
+                            lastPrice = price
+                            ..
+
+                    return (newToken, fromNewOwnerToOwner, condRoyaltyPayement)
